@@ -1,0 +1,191 @@
+buildscript {
+    repositories {
+        maven {
+            url 'https://goldensammy.jfrog.io/artifactory/my-gradle-dev'
+            credentials {
+                username = "*************"
+                password = '********'
+            }
+        }
+
+    }
+    dependencies {
+        //Check for the latest version here: http://plugins.gradle.org/plugin/com.jfrog.artifactory
+        classpath "org.jfrog.buildinfo:build-info-extractor-gradle:4+"
+    }
+}
+
+allprojects {
+    apply plugin: "com.jfrog.artifactory"
+}
+
+group = 'com.Test.SonaliD'
+def ver = System.getProperty("jar.version")
+version = "$ver"
+
+apply plugin: 'java-library'
+apply plugin: 'maven'
+apply plugin: 'maven-publish'
+apply plugin: 'java'
+apply plugin: 'com.jfrog.artifactory'
+
+//def nexusUser = System.getProperty("nexus.user")
+//def nexusPassword = System.getProperty("nexus.password")
+//def nexusUrl = System.getProperty("nexus.url")
+
+def artifactory_password = '******'
+def artifactory_user = "********"
+def artifactory_contextUrl = "https://goldensammy.jfrog.io/artifactory/"
+
+configurations.all {
+    // Check for snapshot updates every build
+    resolutionStrategy.cacheChangingModulesFor 0, 'seconds'
+}
+jar {from sourceSets.test.output}
+
+task testJar(type: Jar) {
+//    classifier = 'tests'
+    from sourceSets.test.output
+
+    from('src/test/java') {
+        include '/**/*.json'
+    }
+}
+
+task javadocJar(type: Jar, dependsOn: javadoc) {
+    classifier = 'javadoc'
+    from tasks.javadoc.destinationDir
+}
+
+task sourcesJar(type: Jar) {
+    from sourceSets.test.allSource
+    classifier = 'sources'
+}
+
+
+artifacts {
+    archives testJar
+    archives javadocJar
+    //archives sourcesJar
+}
+
+
+repositories {
+
+    repositories {
+        maven {
+            url "https://goldensammy.jfrog.io/artifactory/my-gradle-dev/"
+        }
+        maven {
+            url "https://goldensammy.jfrog.io/artifactory/my-gradle-dev-local/"
+        }
+
+    }
+}
+
+
+
+dependencies {
+    compile group: 'io.cucumber', name: 'cucumber-testng', version: '4.7.2'
+    compile group: 'io.cucumber', name: 'cucumber-java8', version: '4.7.2'
+    compile group: 'io.cucumber', name: 'cucumber-picocontainer', version: '4.7.2'
+    compile group: 'com.codoid.products',name: 'fillo',version: '1.18'
+    //compile group: 'ojdbc7', name: 'ojdbc7', version: 'ojdbc7'
+    compile files('libs/ojdbc7.jar')
+    //compile group: 'javax.mail',name: 'javax.mail-api',version: '1.5.6',changing: true
+    compile group: 'com.sun.mail', name: 'jakarta.mail',version: '1.6.3',changing: true
+    compile group: 'jakarta.mail', name: 'jakarta.mail-api', version: '1.6.3',changing: true
+}
+
+task cukes(type: Test){
+    def suite = "$suiteDIR" + System.getProperty("cukes.testsuite") + '.xml'
+    systemProperty "cukes.env", System.getProperty("cukes.env")
+    systemProperty "cukes.techstack", System.getProperty("cukes.techstack")
+    systemProperty "cukes.webdrivermanager", System.getProperty("cukes.webdrivermanager")
+    systemProperty "cukes.tags", System.getProperty("cukes.tags")
+
+
+    ignoreFailures = true
+
+    useTestNG() {
+        useDefaultListeners = true
+        suites suite
+    }
+
+    outputs.upToDateWhen { false }
+}
+
+task cucumberTag(type: Test) {
+
+    testLogging {
+        showStandardStreams = true
+    }
+
+    systemProperty "org.apache.logging.log4j.level", "DEBUG"
+    systemProperty "cukes.selenium.defaultFindRetries", "1"
+
+    def suite = "$suiteDIR" + 'CmdLineBrowserTestSuite.xml'
+
+    // if browser provided by cmd line argument then use that else default to Chorme
+    systemProperty "cukes.techstack", System.getProperty("cukes.techstack", 'LOCAl_CH')
+    systemProperty "CPPersistMongo", System.getProperty("CPPersistMongo", 'false')
+
+    //if driver provided by cmd line argument then use path else find in /lib/drivers/windows
+    // note: framework check the OS and apend the OS type at the end of path to look for respective driver
+    // e.g if -Dcukes.driverPath=C:\Users\webdriver\chromedriver\win32\2.15\ and running in windows then
+    // framework will look for driver in C:\Users\webdriver\chromedriver\win32\2.15\windows\
+//    systemProperty "cukes.driverPath", System.getProperty("cukes.driverPath", 'lib/drivers/')
+
+    systemProperty "cukes.env", System.getProperty("cukes.env")
+
+    //e.g. -Dcukes.tags=@e2e or -Dcukes.tags=@e2e,@e2e1
+    systemProperty "cucumber.options", "--tags " + System.properties.getProperty("cukes.tags")
+
+
+    //ignorefailure will ignore the error and exit code will be 0 therefore will not fail teh stage in Jenkins/GoCD
+    //ignoreFailures = true
+}
+
+artifactory {
+    contextUrl = "${artifactory_contextUrl}"
+    //The base Artifactory URL if not overridden by the publisher/resolver
+    publish {
+        repository {
+            repoKey = 'my-gradle-dev-local'
+            username = "${artifactory_user}"
+            password = "${artifactory_password}"
+            mavenCompatible = true
+
+        }
+        defaults {
+            publications('mavenJava')
+            publishBuildInfo = true
+            publishArtifacts = true
+            publishPom = true
+        }
+
+
+    }
+    resolve {
+        repository {
+            repoKey = 'my-gradle-dev'
+            username = "${artifactory_user}"
+            password = "${artifactory_password}"
+            maven = true
+
+        }
+    }
+}
+publishing {
+    publications {
+        mavenJava(MavenPublication) {
+            groupId = "$group"
+            artifactId = "$rootProject.name"
+            version = "${ver}"
+            from components.java
+            artifact jar
+            artifact javadocJar
+            artifact sourcesJar
+        }
+    }
+}
